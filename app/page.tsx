@@ -639,11 +639,6 @@ export default function Home() {
     setStatus("רשומת המשקל נמחקה");
   }
 
-  function deleteWeight(id: string) {
-  setWeights((prev) => prev.filter((item) => item.id !== id));
-  setStatus("רשומת המשקל נמחקה");
-}
-
 async function signIn() {
   if (!email.trim()) {
     setStatus("תכניס מייל");
