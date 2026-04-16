@@ -639,38 +639,49 @@ export default function Home() {
     setStatus("רשומת המשקל נמחקה");
   }
 
-  async function signIn() {
-    if (!email.trim()) {
-      setStatus("תכניס מייל");
+  function deleteWeight(id: string) {
+  setWeights((prev) => prev.filter((item) => item.id !== id));
+  setStatus("רשומת המשקל נמחקה");
+}
+
+async function signIn() {
+  if (!email.trim()) {
+    setStatus("תכניס מייל");
+    return;
+  }
+
+  try {
+    setSendingCode(true);
+    setStatus("שולח קוד...");
+
+    console.log("BEFORE signInWithOtp");
+    console.log("EMAIL:", email.trim());
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        shouldCreateUser: true,
+      },
+    });
+
+    console.log("AFTER signInWithOtp", { error });
+
+    if (error) {
+      console.error("signIn error:", error);
+      setStatus("שגיאה בשליחת הקוד: " + error.message);
       return;
     }
 
-    try {
-      setSendingCode(true);
-      setStatus("");
-
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: {
-          shouldCreateUser: true,
-        },
-      });
-
-      if (error) {
-        console.error("signIn error:", error);
-        setStatus(`שגיאה בשליחת הקוד: ${error.message}`);
-        return;
-      }
-
-      setOtpStep("code");
-      setStatus("קוד אימות נשלח למייל 📩");
-    } catch (error: any) {
-      console.error("signIn crash:", error);
-      setStatus(`שגיאה בשליחת הקוד: ${error?.message ?? "שגיאה לא ידועה"}`);
-    } finally {
-      setSendingCode(false);
-    }
+    console.log("MOVING TO CODE STEP");
+    setOtpStep("code");
+    setStatus("קוד אימות נשלח למייל - גרסה חדשה");
+  } catch (error: any) {
+    console.error("signIn crash:", error);
+    setStatus("שגיאה בשליחת הקוד: " + (error?.message || "שגיאה לא ידועה"));
+  } finally {
+    setSendingCode(false);
   }
+}
 
   async function verifyCode() {
     if (!email.trim()) {
@@ -765,7 +776,7 @@ export default function Home() {
       <main dir="rtl" style={appBg}>
         <div style={centerBox}>
           <div style={{ ...card, maxWidth: 460, width: "100%" }}>
-            <div style={heroTitle}>Diet Pro</div>
+            <div style={heroTitle}>Diet Pro NEW</div>
             <div style={{ ...subtleText, marginBottom: 18 }}>
               התחברות מהירה עם קוד למייל כדי לשמור את כל הנתונים שלך בין מכשירים.
             </div>
