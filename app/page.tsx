@@ -197,6 +197,10 @@ export default function Home() {
 
   const [user, setUser] = useState<any>(null);
   const [email, setEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpStep, setOtpStep] = useState<"email" | "code">("email");
+  const [sendingCode, setSendingCode] = useState(false);
+  const [verifyingCode, setVerifyingCode] = useState(false);
 
   const [profile, setProfile] = useState<Profile>(defaultProfile());
   const [journals, setJournals] = useState<Journal[]>([]);
@@ -219,16 +223,19 @@ export default function Home() {
 
     async function initAuth() {
       try {
-        const { data, error } = await supabase.auth.getUser();
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession();
 
         if (error) {
-          console.error("getUser error:", error);
+          console.error("getSession error:", error);
         }
 
         if (!mounted) return;
-        setUser(data.user ?? null);
+        setUser(session?.user ?? null);
       } catch (error) {
-        console.error("getUser crash:", error);
+        console.error("getSession crash:", error);
       } finally {
         if (mounted) setAuthReady(true);
       }
@@ -236,14 +243,16 @@ export default function Home() {
 
     initAuth();
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setAuthReady(true);
     });
 
     return () => {
       mounted = false;
-      listener.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
@@ -636,19 +645,76 @@ export default function Home() {
       return;
     }
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        emailRedirectTo: window.location.origin,
-      },
-    });
+    try {
+      setSendingCode(true);
+      setStatus("");
 
-    if (error) {
-      console.error("signIn error:", error);
-      setStatus("שגיאה בשליחת המייל");
-    } else {
-      setStatus("נשלח מייל התחברות 📩");
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          shouldCreateUser: true,
+        },
+      });
+
+      if (error) {
+        console.error("signIn error:", error);
+        setStatus(`שגיאה בשליחת הקוד: ${error.message}`);
+        return;
+      }
+
+      setOtpStep("code");
+      setStatus("קוד אימות נשלח למייל 📩");
+    } catch (error: any) {
+      console.error("signIn crash:", error);
+      setStatus(`שגיאה בשליחת הקוד: ${error?.message ?? "שגיאה לא ידועה"}`);
+    } finally {
+      setSendingCode(false);
     }
+  }
+
+  async function verifyCode() {
+    if (!email.trim()) {
+      setStatus("חסר מייל");
+      return;
+    }
+
+    if (!otpCode.trim()) {
+      setStatus("תכניס קוד אימות");
+      return;
+    }
+
+    try {
+      setVerifyingCode(true);
+      setStatus("");
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: otpCode.trim(),
+        type: "email",
+      });
+
+      if (error) {
+        console.error("verifyCode error:", error);
+        setStatus(`קוד לא תקין: ${error.message}`);
+        return;
+      }
+
+      setUser(data.user ?? null);
+      setOtpCode("");
+      setOtpStep("email");
+      setStatus("התחברת בהצלחה 🎉");
+    } catch (error: any) {
+      console.error("verifyCode crash:", error);
+      setStatus(`שגיאה באימות הקוד: ${error?.message ?? "שגיאה לא ידועה"}`);
+    } finally {
+      setVerifyingCode(false);
+    }
+  }
+
+  function backToEmailStep() {
+    setOtpStep("email");
+    setOtpCode("");
+    setStatus("");
   }
 
   async function signOut() {
@@ -663,6 +729,9 @@ export default function Home() {
     setStatus("התנתקת בהצלחה");
     setUser(null);
     setMenuOpen(false);
+    setOtpStep("email");
+    setOtpCode("");
+    setEmail("");
   }
 
   function clearLocalAndState() {
@@ -698,10 +767,10 @@ export default function Home() {
           <div style={{ ...card, maxWidth: 460, width: "100%" }}>
             <div style={heroTitle}>Diet Pro</div>
             <div style={{ ...subtleText, marginBottom: 18 }}>
-              התחברות מהירה עם מייל כדי לשמור את כל הנתונים שלך בין מכשירים.
+              התחברות מהירה עם קוד למייל כדי לשמור את כל הנתונים שלך בין מכשירים.
             </div>
 
-            {status && <StatusBox text={status} variant="success" />}
+            {status && <StatusBox text={status} variant={status.includes("שגיאה") || status.includes("לא תקין") ? "error" : "success"} />}
 
             <label style={labelStyle}>מייל</label>
             <input
@@ -710,12 +779,40 @@ export default function Home() {
               placeholder="name@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              disabled={otpStep === "code"}
             />
 
             <div style={{ height: 14 }} />
-            <button style={primaryBtn} onClick={signIn}>
-              שלח קישור התחברות
-            </button>
+
+            {otpStep === "email" ? (
+              <button style={primaryBtn} onClick={signIn} disabled={sendingCode}>
+                {sendingCode ? "שולח קוד..." : "שלח קוד למייל"}
+              </button>
+            ) : (
+              <>
+                <label style={{ ...labelStyle, marginTop: 8 }}>קוד אימות</label>
+                <input
+                  style={inputStyle}
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="הכנס קוד שקיבלת במייל"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                />
+
+                <div style={{ height: 14 }} />
+
+                <div style={{ display: "grid", gap: 10 }}>
+                  <button style={primaryBtn} onClick={verifyCode} disabled={verifyingCode}>
+                    {verifyingCode ? "מאמת..." : "אמת קוד והתחבר"}
+                  </button>
+
+                  <button style={secondaryBtn} onClick={backToEmailStep}>
+                    חזור להזנת מייל
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </main>
@@ -804,7 +901,7 @@ export default function Home() {
       </header>
 
       <div style={pageShell}>
-        {status && <StatusBox text={status} variant="success" />}
+        {status && <StatusBox text={status} variant={status.includes("שגיאה") || status.includes("לא תקין") ? "error" : "success"} />}
 
         {view === "dashboard" && (
           <div style={{ display: "grid", gap: 16 }}>
@@ -1550,13 +1647,19 @@ function Spacer({ small = false }: { small?: boolean }) {
   return <div style={{ height: small ? 10 : 14 }} />;
 }
 
-function StatusBox({ text, variant }: { text: string; variant: "success" | "info" }) {
+function StatusBox({ text, variant }: { text: string; variant: "success" | "info" | "error" }) {
   const styles =
     variant === "success"
       ? {
           background: "#dcfce7",
           border: "1px solid #86efac",
           color: "#166534",
+        }
+      : variant === "error"
+      ? {
+          background: "#fef2f2",
+          border: "1px solid #fecaca",
+          color: "#b91c1c",
         }
       : {
           background: "#eff6ff",
